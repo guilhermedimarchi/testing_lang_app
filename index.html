@@ -277,12 +277,11 @@
                 try {
                     responseDiv.textContent = "Sending to GPT...";
                     console.log("Sending text to /chat:", message);
-
                     const response = await fetch(apiUrl, {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
-                            "Authorization": `${tokenInput}`,
+                            "Authorization": `${tokenInput.value.trim()}`,
                         },
                         body: JSON.stringify({
                             user_id: username,
