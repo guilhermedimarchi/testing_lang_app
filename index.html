@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Continuous Voice Chat with GPT</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 20px;
+        }
+        button, select, input, textarea {
+            padding: 10px;
+            font-size: 16px;
+            margin: 10px;
+            cursor: pointer;
+        }
+        #response {
+            margin-top: 20px;
+            max-width: 80%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        #chat-history {
+            width: 80%;
+            max-width: 600px;
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+        }
+        .chat-message {
+            margin-bottom: 10px;
+        }
+        .user-message {
+            text-align: right;
+            color: blue;
+        }
+        .gpt-message {
+            text-align: left;
+            color: green;
+        }
+        #text-input-area {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Continuous Voice Chat with GPT</h1>
+
+    <input type="text" id="username" placeholder="Enter your username" />
+    <input type="text" id="token" placeholder="Token" />
+    <select id="language-select">
+        <option value="en-US">English (US)</option>
+        <option value="en-GB">English (UK)</option>
+        <option value="de-DE" selected>German (DE)</option>
+        <option value="es-ES">Spanish (ES)</option>
+        <option value="fr-FR">French (FR)</option>
+        <option value="it-IT">Italian (IT)</option>
+        <option value="pt-BR">Portuguese (BR)</option>
+    </select>
+
+    <label>
+        <input type="radio" name="input-mode" value="speech" checked /> Speech Input
+    </label>
+    <label>
+        <input type="radio" name="input-mode" value="text" /> Text Input
+    </label>
+
+    <label>
+        <input type="radio" name="response-mode" value="voice" checked /> Voice Response
+    </label>
+    <label>
+        <input type="radio" name="response-mode" value="text" /> Text Response
+    </label>
+
+    <div id="text-input-area">
+        <textarea id="text-input" placeholder="Type your message here..." rows="4" cols="50"></textarea>
+        <button id="send-text-button">Send</button>
+    </div>
+
+    <button id="start-button">Start Listening</button>
+    <button id="done-button" disabled>Done</button>
+
+    <div id="response"></div>
+    <div id="chat-history"></div>
+
+    <script>
+        const startButton = document.getElementById("start-button");
+        const doneButton = document.getElementById("done-button");
+        const responseDiv = document.getElementById("response");
+        const chatHistoryDiv = document.getElementById("chat-history");
+        const usernameInput = document.getElementById("username");
+        const tokenInput = document.getElementById("token");
+        const languageSelect = document.getElementById("language-select");
+        const inputModeRadios = document.getElementsByName("input-mode");
+        const responseModeRadios = document.getElementsByName("response-mode");
+        const textInputArea = document.getElementById("text-input-area");
+        const textInput = document.getElementById("text-input");
+        const sendTextButton = document.getElementById("send-text-button");
+        const apiUrl = "http://ec2-3-75-236-196.eu-central-1.compute.amazonaws.com:8000/chat/";
+
+        let recognition;
+        let accumulatedText = "";
+        let selectedLanguage = "de-DE";
+        let username = "user123";
+        const synth = window.speechSynthesis;
+        let voices = [];
+        let inputMode = "";
+        let responseMode = "";
+
+        // Load voices
+        function loadVoices() {
+            voices = synth.getVoices();
+            if (!voices.length) {
+                console.log("Voices not loaded. Retrying...");
+                setTimeout(loadVoices, 100);
+            } else {
+                console.log("Voices loaded:", voices);
+            }
+        }
+
+        if (synth.onvoiceschanged !== undefined) {
+            synth.onvoiceschanged = loadVoices;
+        }
+
+        // Initialize voices on user interaction
+        startButton.addEventListener("click", () => {
+            loadVoices();
+        });
+
+            // Update input and response modes based on user selection
+        inputModeRadios.forEach(radio => {
+            radio.addEventListener("change", () => {
+                inputMode = document.querySelector('input[name="input-mode"]:checked').value;
+                console.log("Input mode changed to:", inputMode);
+                toggleInputMode(inputMode);
+            });
+        });
+
+        responseModeRadios.forEach(radio => {
+            radio.addEventListener("change", () => {
+                responseMode = document.querySelector('input[name="response-mode"]:checked').value;
+                console.log("Response mode changed to:", responseMode);
+            });
+        });
+
+        function toggleInputMode(mode) {
+            if (mode === "text") {
+                textInputArea.style.display = "block";
+                startButton.style.display = "none";
+                doneButton.style.display = "none";
+            } else {
+                textInputArea.style.display = "none";
+                startButton.style.display = "inline-block";
+                doneButton.style.display = "inline-block";
+            }
+        }
+
+        // Function to speak text using Speech Synthesis
+        function speakText(text) {
+            if (synth.speaking) {
+                console.log("Cancelling ongoing speech.");
+                synth.cancel();
+            }
+
+            if (!voices.length) {
+                console.log("No voices loaded. Trying again...");
+                loadVoices();
+                return;
+            }
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = selectedLanguage;
+            utterance.voice = voices.find((voice) => voice.lang === selectedLanguage) || voices[0];
+
+            utterance.onstart = () => {
+                console.log("Started speaking:", text);
+            };
+
+            utterance.onend = () => {
+                console.log("Finished speaking.");
+            };
+
+            utterance.onerror = (event) => {
+                console.error("SpeechSynthesis error:", event.error);
+            };
+
+            synth.speak(utterance);
+        }
+
+        if ("webkitSpeechRecognition" in window) {
+            recognition = new webkitSpeechRecognition();
+        } else if ("SpeechRecognition" in window) {
+            recognition = new SpeechRecognition();
+        } else {
+            alert("Your browser does not support the Web Speech API.");
+        }
+
+        if (recognition) {
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = selectedLanguage;
+
+            recognition.onstart = () => {
+                startButton.textContent = "Listening...";
+                startButton.disabled = true;
+                doneButton.disabled = false;
+            };
+
+            recognition.onend = () => {
+                startButton.textContent = "Start Listening";
+                startButton.disabled = false;
+                doneButton.disabled = true;
+            };
+
+            recognition.onerror = (event) => {
+                alert("Error occurred: " + event.error);
+                startButton.textContent = "Start Listening";
+                startButton.disabled = false;
+                doneButton.disabled = true;
+            };
+
+            recognition.onresult = (event) => {
+                let interimTranscript = "";
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        accumulatedText += transcript + " ";
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+                responseDiv.textContent = "Accumulated Text: " + accumulatedText + "\nInterim Text: " + interimTranscript;
+            };
+
+            languageSelect.addEventListener("change", () => {
+                selectedLanguage = languageSelect.value;
+                recognition.lang = selectedLanguage;
+                console.log("Selected language:", selectedLanguage);
+            });
+
+            usernameInput.addEventListener("input", () => {
+                username = usernameInput.value || "user123";
+                console.log("Username set to:", username);
+            });
+
+            startButton.addEventListener("click", () => {
+                recognition.start();
+            });
+
+            doneButton.addEventListener("click", async () => {
+                recognition.stop();
+                await sendMessage(accumulatedText.trim());
+                accumulatedText = "";
+            });
+
+            sendTextButton.addEventListener("click", async () => {
+                const textMessage = textInput.value.trim();
+                if (textMessage) {
+                    await sendMessage(textMessage);
+                    textInput.value = "";
+                }
+            });
+
+            async function sendMessage(message) {
+                if (!message) return;
+
+                try {
+                    responseDiv.textContent = "Sending to GPT...";
+                    console.log("Sending text to /chat:", message);
+
+                    const response = await fetch(apiUrl, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `${tokenInput}`,
+                        },
+                        body: JSON.stringify({
+                            user_id: username,
+                            text: message,
+                            language: selectedLanguage,
+                        }),
+                    });
+
+                    const data = await response.json();
+                    console.log("Received response from /chat:", data);
+
+                    if (response.ok && data.response) {
+                        const gptResponse = data.response;
+                        responseDiv.textContent = "GPT Response: " + gptResponse;
+
+                        // Update chat history
+                        addChatMessage("user", message);
+                        addChatMessage("gpt", gptResponse);
+
+                        // Speak the GPT response
+                        if(responseMode == "voice") {
+                            speakText(gptResponse);
+                        }
+                    } else {
+                        responseDiv.textContent = "Error: " + data.detail;
+                    }
+                } catch (error) {
+                    responseDiv.textContent = "Error: " + error.message;
+                    console.error("Fetch error:", error);
+                } finally {
+                    accumulatedText = "";
+                }
+            }
+        }
+
+        // Function to add chat messages to the chat history
+        function addChatMessage(role, message) {
+            const messageDiv = document.createElement("div");
+            messageDiv.classList.add("chat-message", role === "user" ? "user-message" : "gpt-message");
+            messageDiv.textContent = role === "user" ? `You: ${message}` : `GPT: ${message}`;
+            chatHistoryDiv.appendChild(messageDiv);
+            chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+        }
+    </script>
+
+</body>
+</html>
